@@ -6,7 +6,11 @@
 
 This is a full-stack Todo application that allows users to manage their tasks efficiently. The application provides a clean and intuitive interface for creating, viewing, updating, and deleting tasks. It's built with a modern tech stack, featuring a React frontend and a Python FastAPI backend.
 
-The application features a clean, intuitive user interface with responsive design for both desktop and mobile use. Todos can be marked as complete, edited, and filtered by status (all, active, completed).
+The project is built with:
+- **Frontend**: React with TypeScript
+- **Backend**: Python with FastAPI
+- **Database**: SQLite (development), PostgreSQL (production)
+- **Authentication**: JWT-based authentication system
 
 ## Features
 
@@ -17,6 +21,10 @@ The application features a clean, intuitive user interface with responsive desig
   - Edit existing tasks
   - Delete tasks
   - Filter tasks (all, active, completed)
+- **Task Organization**: Categorize todos with labels/tags
+- **Priority Levels**: Set importance levels for your tasks
+- **Due Dates**: Assign deadlines to your tasks
+- **Filtering & Sorting**: Find tasks based on various criteria
 - **Responsive Design**: Works seamlessly on mobile, tablet, and desktop devices
 - **Data Persistence**: All tasks are stored in a database
 - **Real-time Updates**: Interface updates immediately when tasks change
