@@ -2,44 +2,67 @@ document.addEventListener('DOMContentLoaded', function() {
     // Cache DOM elements
     const todoForm = document.getElementById('todo-form');
     const todoList = document.getElementById('todo-list');
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    
+    // CSRF token handling
+    const getCsrfToken = () => {
+        // Get CSRF token from meta tag or cookie
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        return csrfMeta ? csrfMeta.getAttribute('content') : '';
+    };
+
+    // Sanitize input to prevent XSS
+    const sanitizeHTML = (str) => {
+        const temp = document.createElement('div');
+        temp.textContent = str;
+        return temp.innerHTML;
+    };
 
     // Error message display function
     function showError(message) {
+        showFeedback(message, true);
+    }
+
+    // Success message display function
+    function showSuccess(message) {
+        showFeedback(message, false);
+    }
+
+    // Show feedback to user
+    const showFeedback = (message, isError = false) => {
         const errorDiv = document.createElement('div');
-        errorDiv.className = 'alert alert-danger alert-dismissible fade show';
+        errorDiv.className = isError ? 
+            'alert alert-danger alert-dismissible fade show' :
+            'alert alert-success alert-dismissible fade show';
         errorDiv.innerHTML = `
             ${message}
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         `;
         document.querySelector('.container').prepend(errorDiv);
 
-        // Auto-dismiss after 5 seconds
+        // Auto-dismiss after 3-5 seconds
         setTimeout(() => {
             errorDiv.remove();
-        }, 5000);
-    }
+        }, isError ? 5000 : 3000);
+    };
 
-    // Success message display function
-    function showSuccess(message) {
-        const successDiv = document.createElement('div');
-        successDiv.className = 'alert alert-success alert-dismissible fade show';
-        successDiv.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        `;
-        document.querySelector('.container').prepend(successDiv);
+    // Rate limiting for API requests
+    let lastRequestTime = 0;
+    const MIN_REQUEST_INTERVAL = 500; // ms
 
-        // Auto-dismiss after 3 seconds
-        setTimeout(() => {
-            successDiv.remove();
-        }, 3000);
-    }
+    const throttledFetch = (url, options) => {
+        const now = Date.now();
+        if (now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+            showError('Please wait before making another request.');
+            return Promise.reject(new Error('Rate limited'));
+        }
 
-    // Add CSRF token to all AJAX requests
-    function addCSRFToken(xhr) {
-        xhr.setRequestHeader('X-CSRFToken', csrfToken);
-    }
+        lastRequestTime = now;
+        return fetch(url, options).catch(error => {
+            console.error('Request failed:', error);
+            showError('An error occurred. Please try again.');
+            return Promise.reject(error);
+        });
+    };
 
     // Handle form submission for creating new todos
     if (todoForm) {
@@ -61,11 +84,11 @@ document.addEventListener('DOMContentLoaded', function() {
             submitButton.disabled = true;
 
             // Send AJAX request
-            fetch('/add', {
+            throttledFetch('/add', {
                 method: 'POST',
                 body: formData,
                 headers: {
-                    'X-CSRFToken': csrfToken
+                    'X-CSRFToken': getCsrfToken()
                 }
             })
             .then(response => {
@@ -105,7 +128,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const titleSpan = document.createElement('span');
         titleSpan.className = todo.completed ? 'text-decoration-line-through' : '';
-        titleSpan.textContent = todo.title;
+        titleSpan.textContent = sanitizeHTML(todo.title);
 
         const actionsDiv = document.createElement('div');
 
@@ -145,11 +168,11 @@ document.addEventListener('DOMContentLoaded', function() {
         toggleButton.textContent = 'Updating...';
         toggleButton.disabled = true;
 
-        fetch('/toggle/' + todoId, {
+        throttledFetch('/toggle/' + todoId, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
+                'X-CSRFToken': getCsrfToken()
             },
             body: JSON.stringify({ completed: newStatus })
         })
@@ -208,10 +231,10 @@ document.addEventListener('DOMContentLoaded', function() {
         deleteButton.textContent = 'Deleting...';
         deleteButton.disabled = true;
 
-        fetch('/delete/' + todoId, {
+        throttledFetch('/delete/' + todoId, {
             method: 'POST',
             headers: {
-                'X-CSRFToken': csrfToken
+                'X-CSRFToken': getCsrfToken()
             }
         })
         .then(response => {
@@ -269,4 +292,23 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Initialize existing todo items
+    const todoItems = document.querySelectorAll('.todo-item');
+    todoItems.forEach(item => {
+        // Add event listeners to existing items if needed
+        const statusCheckbox = item.querySelector('.todo-status');
+        if (statusCheckbox) {
+            statusCheckbox.addEventListener('change', function() {
+                updateTodoStatus(item.dataset.id, this.checked);
+            });
+        }
+
+        const deleteBtn = item.querySelector('.delete-todo');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', function() {
+                deleteTodo(item.dataset.id);
+            });
+        }
+    });
 });

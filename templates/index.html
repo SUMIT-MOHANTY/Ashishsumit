@@ -3,7 +3,14 @@
 {% block title %}Todo App{% endblock %}
 
 {% block content %}
-    <h1>Todo App</h1>
+    <div class="welcome-section">
+        <h1>Todo App</h1>
+        <p>Manage your tasks efficiently and stay organized with our easy-to-use task management system.</p>
+        <div class="action-buttons">
+            <a href="{{ url_for('login') }}" class="btn btn-primary">Login</a>
+            <a href="{{ url_for('register') }}" class="btn btn-secondary">Register</a>
+        </div>
+    </div>
 
     <form id="todo-form" action="{{ url_for('add') }}" method="post">
         <div class="input-group mb-3">
@@ -25,4 +32,22 @@
         </li>
         {% endfor %}
     </ul>
+
+    <div class="features-section">
+        <h2>Features</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <h3>Task Organization</h3>
+                <p>Create, edit, and organize your tasks with ease.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Due Dates</h3>
+                <p>Set due dates to keep track of important deadlines.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Task Status</h3>
+                <p>Mark tasks as completed and track your progress.</p>
+            </div>
+        </div>
+    </div>
 {% endblock %}
