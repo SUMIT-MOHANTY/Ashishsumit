@@ -1,0 +1,167 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+import sqlite3
+import logging
+from datetime import datetime
+
+from .models import TodoCreate, TodoResponse
+from .database import get_db_connection
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app_routes.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+def row_to_dict(row):
+    """Convert SQLite row to dictionary with proper type conversion"""
+    if row is None:
+        return None
+
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "description": row["description"],
+        "completed": bool(row["completed"]),
+        "created_at": datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now()
+    }
+
+@router.post("/todos/", response_model=TodoResponse, status_code=status.HTTP_201_CREATED)
+def create_todo(todo: TodoCreate):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "INSERT INTO todos (title, description, completed) VALUES (?, ?, ?)",
+            (todo.title, todo.description, todo.completed)
+        )
+        conn.commit()
+
+        # Get the created todo with its ID
+        todo_id = cursor.lastrowid
+        cursor.execute("SELECT * FROM todos WHERE id = ?", (todo_id,))
+        todo_data = row_to_dict(cursor.fetchone())
+        conn.close()
+
+        return TodoResponse(**todo_data)
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error in create_todo: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error in create_todo: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+@router.get("/todos/", response_model=List[TodoResponse])
+def read_todos(skip: int = 0, limit: int = 100):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM todos LIMIT ? OFFSET ?", (limit, skip))
+
+        todos = [row_to_dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return [TodoResponse(**todo) for todo in todos]
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error in read_todos: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error in read_todos: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+@router.put("/todos/{todo_id}", response_model=TodoResponse)
+def update_todo(todo_id: int, todo: TodoCreate):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check if todo exists
+        cursor.execute("SELECT * FROM todos WHERE id = ?", (todo_id,))
+        if cursor.fetchone() is None:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Todo not found")
+
+        cursor.execute(
+            "UPDATE todos SET title = ?, description = ?, completed = ? WHERE id = ?",
+            (todo.title, todo.description, todo.completed, todo_id)
+        )
+        conn.commit()
+
+        # Get updated todo
+        cursor.execute("SELECT * FROM todos WHERE id = ?", (todo_id,))
+        todo_data = row_to_dict(cursor.fetchone())
+        conn.close()
+
+        return TodoResponse(**todo_data)
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error in update_todo: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in update_todo: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+@router.delete("/todos/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_todo(todo_id: int):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check if todo exists
+        cursor.execute("SELECT * FROM todos WHERE id = ?", (todo_id,))
+        if cursor.fetchone() is None:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Todo not found")
+
+        cursor.execute("DELETE FROM todos WHERE id = ?", (todo_id,))
+        conn.commit()
+        conn.close()
+
+        return None
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error in delete_todo: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in delete_todo: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+# Fixed todo endpoints
+@app.get("/todos/{todo_id}")
+async def read_todo(todo_id: int):
+    try:
+        if todo_id not in todos:
+            raise HTTPException(status_code=404, detail="Todo not found")
+        return todos[todo_id]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving todo {todo_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.delete("/todos/{todo_id}", status_code=204)
+async def delete_todo(todo_id: int):
+    try:
+        if todo_id not in todos:
+            raise HTTPException(status_code=404, detail="Todo not found")
+        del todos[todo_id]
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting todo {todo_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete todo")

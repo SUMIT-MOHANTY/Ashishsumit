@@ -1,46 +1,62 @@
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 import os
-from contextlib import contextmanager
+import sqlite3
+from pathlib import Path
 import logging
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app_database.log')
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# Get database URL from environment variable with fallback for development
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./todos.db")
+# Ensure the data directory exists
+def get_db_path():
+    data_dir = Path("./data")
+    data_dir.mkdir(exist_ok=True)
+    return data_dir / "todos.db"
 
-# Configure engine with connection pooling for production databases
-if DATABASE_URL.startswith("postgresql"):
-    engine = create_engine(
-        DATABASE_URL,
-        pool_size=5,
-        max_overflow=10,
-        pool_timeout=30,
-        pool_recycle=1800,
-    )
-else:
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False}
-    )
+DB_PATH = get_db_path()
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
-
-@contextmanager
-def get_db():
-    """
-    Context manager for database sessions to ensure proper
-    closing even if exceptions occur
-    """
-    db = SessionLocal()
+def get_db_connection():
+    """Get a connection to the SQLite database with proper error handling"""
     try:
-        yield db
-    except Exception as e:
-        logger.error(f"Database error: {e}")
-        db.rollback()
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.Error as e:
+        logger.error(f"Database connection error: {e}")
+        raise
+
+def initialize_db():
+    """Initialize the database with proper error handling"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Create todos table if it doesn't exist
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                completed BOOLEAN NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        conn.commit()
+        logger.info("Database initialized successfully")
+    except sqlite3.Error as e:
+        logger.error(f"Database initialization error: {e}")
         raise
     finally:
-        db.close()
+        if 'conn' in locals():
+            conn.close()
+
+# Initialize the database when this module is imported
+initialize_db()

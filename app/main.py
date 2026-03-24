@@ -1,62 +1,60 @@
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import logging
-import time
-from app.routes import router
-from app.database import engine
-from app.models import Base
+import sys
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+class TodoItem(BaseModel):
+    task: str
+    completed: bool = False
 
-app = FastAPI(
-    title="Todo API",
-    description="API for managing todo items",
-    version="1.0.0"
-)
+# In-memory database
+todos = {}
 
-# CORS middleware configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    logger.info("Starting up the application")
+    yield
+    # Shutdown logic
+    logger.info("Shutting down the application")
 
-# Add request timing middleware
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start_time = time.time()
-    try:
-        response = await call_next(request)
-        process_time = time.time() - start_time
-        response.headers["X-Process-Time"] = str(process_time)
-        return response
-    except Exception as e:
-        logger.error(f"Request failed: {e}")
-        process_time = time.time() - start_time
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"},
-            headers={"X-Process-Time": str(process_time)}
-        )
+app = FastAPI(lifespan=lifespan)
 
-# Include routes
-app.include_router(router)
+@app.get("/")
+async def read_root():
+    logger.info("Processing request to read root")
+    return {"status": "ok"}
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
+@app.post("/todos/", status_code=201)
+async def create_todo(item: TodoItem):
+    logger.info(f"Creating todo: {item.task}")
+    todo_id = len(todos) + 1
+    todos[todo_id] = item
+    return {"id": todo_id, "item": item}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.put("/todos/{todo_id}", status_code=200)
+async def update_todo(todo_id: int, item: TodoItem):
+    logger.info(f"Updating todo {todo_id}: {item.task}")
+    if todo_id not in todos:
+        logger.warning(f"Todo {todo_id} not found")
+        raise HTTPException(status_code=404, detail="Todo not found")
+    todos[todo_id] = item
+    return {"id": todo_id, "item": item}
+
+@app.delete("/todos/{todo_id}", status_code=200)
+async def delete_todo(todo_id: int):
+    logger.info(f"Deleting todo {todo_id}")
+    if todo_id not in todos:
+        logger.warning(f"Todo {todo_id} not found")
+        raise HTTPException(status_code=404, detail="Todo not found")
+    item = todos.pop(todo_id)
+    return {"id": todo_id, "item": item}

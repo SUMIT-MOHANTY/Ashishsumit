@@ -1,33 +1,27 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
 from datetime import datetime
-import uuid
+from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-Base = declarative_base()
+# Updated TodoBase model with Pydantic V2 syntax
+class TodoBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    completed: bool = False
 
-class Todo(Base):
-    __tablename__ = "todos"
+    # Use ConfigDict instead of Config class
+    model_config = ConfigDict(from_attributes=True)
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    description = Column(String(1000))
-    completed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    # Using a public_id to avoid exposing database IDs directly
-    public_id = Column(String(36), unique=True, default=lambda: str(uuid.uuid4()))
+class TodoCreate(TodoBase):
+    pass
 
-    # Add user relationship if authentication is implemented
-    # user_id = Column(Integer, ForeignKey("users.id"))
-    # user = relationship("User", back_populates="todos")
+class TodoResponse(TodoBase):
+    id: int
+    created_at: datetime
 
-    def to_dict(self):
-        return {
-            "id": self.public_id,
-            "title": self.title,
-            "description": self.description,
-            "completed": self.completed,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
-        }
+    # Sample validator using V2 syntax
+    @field_validator('title')
+    @classmethod
+    def title_must_not_be_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Title must not be empty')
+        return v
