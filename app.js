@@ -38,6 +38,27 @@ function setupEventListeners() {
             const todoId = event.target.getAttribute('data-id');
             deleteTodo(todoId);
         }
+
+        // Handle edit button
+        if (event.target.classList.contains('edit-btn')) {
+            const todoItem = event.target.closest('.todo-item');
+            if (todoItem) {
+                const todoId = todoItem.getAttribute('data-id');
+                const todoTitle = todoItem.querySelector('.todo-title').textContent;
+                editTodo(todoId, todoTitle);
+            }
+        }
+    });
+
+    // Handle checkbox changes
+    document.addEventListener('change', (event) => {
+        if (event.target.classList.contains('todo-checkbox')) {
+            const todoItem = event.target.closest('.todo-item');
+            if (todoItem) {
+                const todoId = todoItem.getAttribute('data-id');
+                toggleTodoStatus(todoId, event.target.checked);
+            }
+        }
     });
 }
 
@@ -85,25 +106,31 @@ function displayTodos(todos) {
     // Create DOM elements for each todo
     todos.forEach(todo => {
         const todoItem = document.createElement('li');
-        todoItem.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+        todoItem.className = `todo-item`;
         todoItem.setAttribute('data-id', todo.id);
 
         const todoDate = new Date(todo.created_at);
         const formattedDate = todoDate.toLocaleString();
+        
+        const isCompleted = todo.completed || todo.complete;
 
         todoItem.innerHTML = `
+            <div class="todo-content ${isCompleted ? 'completed' : ''}">
+                <input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''}>
+                <span class="todo-title">${escapeHtml(todo.title)}</span>
+            </div>
             <div class="todo-header">
-                <h3 class="todo-title">${escapeHtml(todo.title)}</h3>
                 <div class="todo-actions">
-                    <button class="toggle-status" data-id="${todo.id}">
-                        ${todo.completed ? 'Mark Incomplete' : 'Mark Complete'}
-                    </button>
+                    <button class="edit-btn">Edit</button>
                     <button class="delete-todo" data-id="${todo.id}">Delete</button>
+                    <button class="toggle-status" data-id="${todo.id}">
+                        ${isCompleted ? 'Mark Incomplete' : 'Mark Complete'}
+                    </button>
                 </div>
             </div>
-            <p class="todo-description">${escapeHtml(todo.description || '')}</p>
+            ${todo.description ? `<p class="todo-description">${escapeHtml(todo.description)}</p>` : ''}
             <span class="todo-date">Created: ${formattedDate}</span>
-            <span class="todo-status">${todo.completed ? 'Completed' : 'Active'}</span>
+            <span class="todo-status">${isCompleted ? 'Completed' : 'Active'}</span>
         `;
 
         todoList.appendChild(todoItem);
@@ -117,7 +144,7 @@ function displayTodos(todos) {
 async function handleTodoFormSubmit(event) {
     event.preventDefault();
 
-    const titleInput = document.getElementById('todo-title');
+    const titleInput = document.getElementById('todo-title') || document.getElementById('todo-input');
     const descriptionInput = document.getElementById('todo-description');
 
     if (!titleInput || !titleInput.value.trim()) {
@@ -166,24 +193,39 @@ async function handleTodoFormSubmit(event) {
 /**
  * Toggle the completed status of a todo
  * @param {string} todoId - The ID of the todo to update
+ * @param {boolean} isCompleted - The new completion status
  */
-async function toggleTodoStatus(todoId) {
+async function toggleTodoStatus(todoId, isCompleted) {
     try {
-        // Get the current status of the todo
+        // Get the current status of the todo if not provided
         const todoElement = document.querySelector(`.todo-item[data-id="${todoId}"]`);
-        const isCurrentlyCompleted = todoElement.classList.contains('completed');
+        const todoContent = todoElement.querySelector('.todo-content');
+        
+        if (isCompleted === undefined) {
+            isCompleted = !todoContent.classList.contains('completed');
+        }
 
         // Optimistically update UI
-        todoElement.classList.toggle('completed');
+        if (isCompleted) {
+            todoContent.classList.add('completed');
+        } else {
+            todoContent.classList.remove('completed');
+        }
+        
         const statusButton = todoElement.querySelector('.toggle-status');
         const statusSpan = todoElement.querySelector('.todo-status');
+        const checkbox = todoElement.querySelector('.todo-checkbox');
+
+        if (checkbox) {
+            checkbox.checked = isCompleted;
+        }
 
         if (statusButton) {
-            statusButton.innerText = isCurrentlyCompleted ? 'Mark Complete' : 'Mark Incomplete';
+            statusButton.innerText = isCompleted ? 'Mark Incomplete' : 'Mark Complete';
         }
 
         if (statusSpan) {
-            statusSpan.innerText = isCurrentlyCompleted ? 'Active' : 'Completed';
+            statusSpan.innerText = isCompleted ? 'Completed' : 'Active';
         }
 
         // Show mini loader on the todo item
@@ -196,30 +238,94 @@ async function toggleTodoStatus(todoId) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                completed: !isCurrentlyCompleted
+                completed: isCompleted
             })
         });
 
         if (!response.ok) {
             // Revert UI changes if request failed
-            todoElement.classList.toggle('completed');
-            if (statusButton) {
-                statusButton.innerText = isCurrentlyCompleted ? 'Mark Incomplete' : 'Mark Complete';
+            if (isCompleted) {
+                todoContent.classList.remove('completed');
+            } else {
+                todoContent.classList.add('completed');
             }
+            
+            if (checkbox) {
+                checkbox.checked = !isCompleted;
+            }
+            
+            if (statusButton) {
+                statusButton.innerText = isCompleted ? 'Mark Complete' : 'Mark Incomplete';
+            }
+            
             if (statusSpan) {
-                statusSpan.innerText = isCurrentlyCompleted ? 'Completed' : 'Active';
+                statusSpan.innerText = isCompleted ? 'Active' : 'Completed';
             }
 
             const errorData = await response.json();
             throw new Error(errorData.error || `Failed to update todo: ${response.status}`);
         }
 
-        showSuccessMessage(`Todo ${!isCurrentlyCompleted ? 'completed' : 'marked as active'}!`);
+        showSuccessMessage(`Todo ${isCompleted ? 'completed' : 'marked as active'}!`);
     } catch (error) {
         console.error('Error updating todo:', error);
         showErrorMessage(error.message || 'Failed to update todo status. Please try again.');
     } finally {
         // Remove the updating class
+        const todoElement = document.querySelector(`.todo-item[data-id="${todoId}"]`);
+        if (todoElement) {
+            todoElement.classList.remove('updating');
+        }
+    }
+}
+
+/**
+ * Edit a todo
+ * @param {string} todoId - The ID of the todo to edit
+ * @param {string} currentTitle - Current todo title
+ */
+async function editTodo(todoId, currentTitle) {
+    const newTitle = prompt('Edit todo:', currentTitle);
+
+    if (newTitle === null) {
+        // User cancelled the prompt
+        return;
+    }
+
+    if (newTitle.trim() === '') {
+        showErrorMessage('Todo title cannot be empty');
+        return;
+    }
+
+    try {
+        const todoElement = document.querySelector(`.todo-item[data-id="${todoId}"]`);
+        todoElement.classList.add('updating');
+
+        const response = await fetch(`${API_URL}/${todoId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ title: newTitle })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to update todo: ${response.status}`);
+        }
+
+        const updatedTodo = await response.json();
+        
+        const todoTitle = todoElement.querySelector('.todo-title');
+        if (todoTitle) {
+            todoTitle.textContent = updatedTodo.title;
+        }
+
+        showSuccessMessage('Todo updated successfully!');
+    } catch (error) {
+        console.error('Error updating todo:', error);
+        showErrorMessage(error.message || 'Failed to update todo. Please try again.');
+    } finally {
         const todoElement = document.querySelector(`.todo-item[data-id="${todoId}"]`);
         if (todoElement) {
             todoElement.classList.remove('updating');
@@ -311,7 +417,13 @@ function hideLoader() {
  * @param {string} message - The error message to display
  */
 function showErrorMessage(message) {
-    showNotification(message, 'error');
+    const errorMessage = document.getElementById('error-message');
+    if (errorMessage) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+    } else {
+        showNotification(message, 'error');
+    }
 }
 
 /**

@@ -7,6 +7,7 @@ import os
 import logging
 from datetime import datetime
 from routes import todos_bp
+from models import db
 
 # Configure logging
 logging.basicConfig(
@@ -15,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def create_app() -> Flask:
+def create_app(test_config=None) -> Flask:
     """Create and configure the Flask application.
 
     Returns:
@@ -38,7 +39,7 @@ def create_app() -> Flask:
     app.static_folder = 'static'
     
     # Initialize database
-    db = SQLAlchemy(app)
+    db.init_app(app)
     
     # Initialize login manager
     login_manager = LoginManager()
@@ -291,6 +292,77 @@ def create_app() -> Flask:
             })
         logger.info(f"Registered routes: {routes}")
         
+    # API endpoints for JavaScript frontend
+    @app.route('/toggle/<int:todo_id>', methods=['POST'])
+    def toggle_todo(todo_id):
+        try:
+            todo = Task.query.get_or_404(todo_id)
+            data = request.get_json()
+
+            if data and 'completed' in data:
+                todo.completed = data['completed']
+            else:
+                todo.completed = not todo.completed
+
+            db.session.commit()
+            return jsonify({'success': True, 'todo': {
+                'id': todo.id,
+                'title': todo.title,
+                'completed': todo.completed
+            }})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/delete/<int:todo_id>', methods=['POST'])
+    def delete_todo(todo_id):
+        try:
+            todo = Task.query.get_or_404(todo_id)
+            db.session.delete(todo)
+            db.session.commit()
+            return jsonify({'success': True})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/add', methods=['POST'])
+    def add():
+        try:
+            title = request.form.get('title')
+            if not title or title.strip() == '':
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return jsonify({'success': False, 'error': 'Todo title cannot be empty'})
+                flash('Todo title cannot be empty', 'danger')
+                return redirect(url_for('index'))
+
+            todo = Task(
+                title=title.strip(),
+                user_id=current_user.id if current_user.is_authenticated else 1
+            )
+            db.session.add(todo)
+            db.session.commit()
+
+            # Check if request is AJAX
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': True, 'todo': {
+                    'id': todo.id,
+                    'title': todo.title,
+                    'completed': todo.completed
+                }})
+
+            flash('Todo added successfully!', 'success')
+            return redirect(url_for('index'))
+        except Exception as e:
+            db.session.rollback()
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': False, 'error': str(e)}), 500
+            flash(f'Error adding todo: {str(e)}', 'danger')
+            return redirect(url_for('index'))
+        
+    # Create database tables
+    with app.app_context():
+        db.create_all()
+            
     return app
 
 if __name__ == '__main__':
@@ -298,11 +370,6 @@ if __name__ == '__main__':
     
     # Get port from environment or use default
     port = int(os.environ.get('PORT', 5000))
-    
-    # Create database tables
-    with app.app_context():
-        db = SQLAlchemy(app)
-        db.create_all()
     
     # Run the app
     logger.info(f"Starting server on port {port}")

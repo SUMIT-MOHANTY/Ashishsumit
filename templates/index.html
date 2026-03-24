@@ -1,32 +1,53 @@
 {% extends "base.html" %}
 
-{% block title %}Welcome to Task Manager{% endblock %}
+{% block title %}Todo App{% endblock %}
 
 {% block content %}
-<div class="welcome-section">
-    <h1>Welcome to Task Manager</h1>
-    <p>Manage your tasks efficiently and stay organized with our easy-to-use task management system.</p>
-    <div class="action-buttons">
-        <a href="{{ url_for('login') }}" class="btn btn-primary">Login</a>
-        <a href="{{ url_for('register') }}" class="btn btn-secondary">Register</a>
+    <div class="welcome-section">
+        <h1>Todo App</h1>
+        <p>Manage your tasks efficiently and stay organized with our easy-to-use task management system.</p>
+        <div class="action-buttons">
+            <a href="{{ url_for('login') }}" class="btn btn-primary">Login</a>
+            <a href="{{ url_for('register') }}" class="btn btn-secondary">Register</a>
+        </div>
     </div>
-</div>
 
-<div class="features-section">
-    <h2>Features</h2>
-    <div class="features-grid">
-        <div class="feature-card">
-            <h3>Task Organization</h3>
-            <p>Create, edit, and organize your tasks with ease.</p>
+    <form id="todo-form" action="{{ url_for('add') }}" method="post">
+        <div class="input-group mb-3">
+            <input type="text" name="title" class="form-control" placeholder="Add a new todo" required>
+            <button type="submit" class="btn btn-primary">Add Todo</button>
         </div>
-        <div class="feature-card">
-            <h3>Due Dates</h3>
-            <p>Set due dates to keep track of important deadlines.</p>
-        </div>
-        <div class="feature-card">
-            <h3>Task Status</h3>
-            <p>Mark tasks as completed and track your progress.</p>
+    </form>
+
+    <ul id="todo-list" class="list-group mt-4">
+        {% for todo in todos %}
+        <li data-id="{{ todo.id }}" class="list-group-item d-flex justify-content-between align-items-center {{ 'list-group-item-success' if todo.completed }}">
+            <span class="{{ 'text-decoration-line-through' if todo.completed }}">{{ todo.title }}</span>
+            <div>
+                <button class="btn btn-sm {{ 'btn-warning' if todo.completed else 'btn-success' }}">
+                    {{ 'Mark Undone' if todo.completed else 'Mark Done' }}
+                </button>
+                <button class="btn btn-sm btn-danger ms-2">Delete</button>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <div class="features-section">
+        <h2>Features</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <h3>Task Organization</h3>
+                <p>Create, edit, and organize your tasks with ease.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Due Dates</h3>
+                <p>Set due dates to keep track of important deadlines.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Task Status</h3>
+                <p>Mark tasks as completed and track your progress.</p>
+            </div>
         </div>
     </div>
-</div>
 {% endblock %}

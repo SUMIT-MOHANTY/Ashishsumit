@@ -1,201 +1,308 @@
 from flask import Blueprint, jsonify, request, current_app
+from sqlalchemy.exc import SQLAlchemyError
 import logging
 from typing import Dict, List, Union, Tuple, Any
 import json
 import os
-from models import Todo
+
+from models import db, Todo
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Create blueprint for todo routes
-todos_bp = Blueprint('todos', __name__)
-
-# In-memory database (for demo purposes)
-# In a real application, this would be replaced with a proper database
-TODOS_FILE = 'todos.json'
-
-def _load_todos() -> Dict[str, Todo]:
-    """Load todos from the JSON file."""
-    todos = {}
-    try:
-        if os.path.exists(TODOS_FILE):
-            with open(TODOS_FILE, 'r') as f:
-                todos_data = json.load(f)
-                for todo_id, todo_data in todos_data.items():
-                    todos[todo_id] = Todo.from_dict(todo_data)
-    except Exception as e:
-        logger.error(f"Error loading todos from file: {str(e)}")
-    return todos
-
-def _save_todos(todos: Dict[str, Todo]) -> None:
-    """Save todos to the JSON file."""
-    try:
-        todos_data = {todo_id: todo.to_dict() for todo_id, todo in todos.items()}
-        with open(TODOS_FILE, 'w') as f:
-            json.dump(todos_data, f, indent=2)
-    except Exception as e:
-        logger.error(f"Error saving todos to file: {str(e)}")
-
-# Initialize todos
-TODOS = _load_todos()
+todos_bp = Blueprint('todos', __name__, url_prefix='')
 
 @todos_bp.route('/todos', methods=['GET'])
-def get_todos() -> Tuple[Dict[str, List[Dict[str, Any]]], int]:
-    """
-    Get all todos.
-
-    Returns:
-        JSON response with todos list and HTTP status code
-    """
-    logger.info("Retrieving all todos")
+def get_todos():
+    """Get all todos or filter by completion status"""
     try:
-        todos_list = [todo.to_dict() for todo in TODOS.values()]
-        return jsonify({"todos": todos_list}), 200
-    except Exception as e:
-        logger.error(f"Error retrieving todos: {str(e)}")
-        return jsonify({"error": "Failed to retrieve todos"}), 500
+        # Check if we need to filter by completion status
+        filter_complete = request.args.get('complete')
 
-@todos_bp.route('/todos/<string:todo_id>', methods=['GET'])
-def get_todo(todo_id: str) -> Union[Tuple[Dict[str, Dict[str, Any]], int], Tuple[Dict[str, str], int]]:
-    """
-    Get a specific todo by ID.
-
-    Args:
-        todo_id (str): ID of the todo to retrieve
-
-    Returns:
-        JSON response with todo data or error message and HTTP status code
-    """
-    logger.info(f"Retrieving todo with ID: {todo_id}")
-    try:
-        if todo_id in TODOS:
-            return jsonify({"todo": TODOS[todo_id].to_dict()}), 200
+        if filter_complete is not None:
+            # Convert string to boolean
+            is_complete = filter_complete.lower() == 'true'
+            todos = Todo.query.filter_by(complete=is_complete).order_by(Todo.created_at.desc()).all()
         else:
-            logger.warning(f"Todo with ID {todo_id} not found")
-            return jsonify({"error": "Todo not found"}), 404
+            todos = Todo.query.order_by(Todo.created_at.desc()).all()
+
+        return jsonify({
+            'success': True,
+            'todos': [todo.to_dict() for todo in todos],
+            'count': len(todos)
+        })
+    except SQLAlchemyError as e:
+        logger.error(f"Database error retrieving todos: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to retrieve todos',
+            'details': str(e)
+        }), 500
     except Exception as e:
-        logger.error(f"Error retrieving todo {todo_id}: {str(e)}")
-        return jsonify({"error": f"Failed to retrieve todo: {str(e)}"}), 500
+        logger.error(f"Unexpected error retrieving todos: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'An unexpected error occurred'
+        }), 500
+
+@todos_bp.route('/todos/<int:todo_id>', methods=['GET'])
+def get_todo(todo_id):
+    """Get a specific todo by ID"""
+    try:
+        todo = Todo.query.get(todo_id)
+
+        if todo is None:
+            return jsonify({
+                'success': False,
+                'error': f'Todo with ID {todo_id} not found'
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'todo': todo.to_dict()
+        })
+    except SQLAlchemyError as e:
+        logger.error(f"Database error retrieving todo {todo_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to retrieve todo {todo_id}',
+            'details': str(e)
+        }), 500
+    except Exception as e:
+        logger.error(f"Unexpected error retrieving todo {todo_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'An unexpected error occurred'
+        }), 500
 
 @todos_bp.route('/todos', methods=['POST'])
-def create_todo() -> Union[Tuple[Dict[str, Dict[str, Any]], int], Tuple[Dict[str, str], int]]:
-    """
-    Create a new todo.
-
-    Returns:
-        JSON response with created todo data or error message and HTTP status code
-    """
-    logger.info("Creating new todo")
+def create_todo():
+    """Create a new todo"""
     try:
+        # Get data from request
         data = request.get_json()
 
-        if not data:
-            logger.warning("No JSON data provided")
-            return jsonify({"error": "No data provided"}), 400
+        # Validate required fields
+        if not data or 'title' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Title is required'
+            }), 400
 
-        if 'title' not in data or not data['title']:
-            logger.warning("Missing or empty title in request")
-            return jsonify({"error": "Title is required"}), 400
+        # Validate title is not empty
+        title = data.get('title', '').strip()
+        if not title:
+            return jsonify({
+                'success': False,
+                'error': 'Title cannot be empty'
+            }), 400
+
+        # Get optional fields
+        description = data.get('description')
+        complete = data.get('complete', False)
 
         # Create new todo
-        todo = Todo(
-            title=data['title'],
-            description=data.get('description', ''),
-            completed=data.get('completed', False)
+        new_todo = Todo(
+            title=title,
+            description=description,
+            complete=complete
         )
 
-        # Add to dictionary
-        TODOS[todo.id] = todo
+        # Add to database
+        db.session.add(new_todo)
+        db.session.commit()
 
-        # Save to file
-        _save_todos(TODOS)
+        logger.info(f"Created new todo with ID: {new_todo.id}")
 
-        logger.info(f"Successfully created todo with ID: {todo.id}")
-        return jsonify({"todo": todo.to_dict()}), 201
+        # Return the created todo
+        return jsonify({
+            'success': True,
+            'todo': new_todo.to_dict(),
+            'message': 'Todo created successfully'
+        }), 201
 
-    except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
-        return jsonify({"error": str(e)}), 400
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error creating todo: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to create todo',
+            'details': str(e)
+        }), 500
     except Exception as e:
-        logger.error(f"Error creating todo: {str(e)}")
-        return jsonify({"error": f"Failed to create todo: {str(e)}"}), 500
+        db.session.rollback()
+        logger.error(f"Unexpected error creating todo: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'An unexpected error occurred'
+        }), 500
 
-@todos_bp.route('/todos/<string:todo_id>', methods=['PUT', 'PATCH'])
-def update_todo(todo_id: str) -> Union[Tuple[Dict[str, Dict[str, Any]], int], Tuple[Dict[str, str], int]]:
-    """
-    Update an existing todo.
-
-    Args:
-        todo_id (str): ID of the todo to update
-
-    Returns:
-        JSON response with updated todo data or error message and HTTP status code
-    """
-    logger.info(f"Updating todo with ID: {todo_id}")
+@todos_bp.route('/todos/<int:todo_id>', methods=['PUT'])
+def update_todo(todo_id):
+    """Update a specific todo by ID"""
     try:
-        if todo_id not in TODOS:
-            logger.warning(f"Todo with ID {todo_id} not found")
-            return jsonify({"error": "Todo not found"}), 404
+        # Get the todo
+        todo = Todo.query.get(todo_id)
 
+        if todo is None:
+            return jsonify({
+                'success': False,
+                'error': f'Todo with ID {todo_id} not found'
+            }), 404
+
+        # Get data from request
         data = request.get_json()
 
         if not data:
-            logger.warning("No JSON data provided")
-            return jsonify({"error": "No data provided"}), 400
+            return jsonify({
+                'success': False,
+                'error': 'No update data provided'
+            }), 400
 
-        todo = TODOS[todo_id]
+        # Update fields if they are provided
+        if 'title' in data:
+            if not data['title'].strip():
+                return jsonify({
+                    'success': False,
+                    'error': 'Title cannot be empty'
+                }), 400
+            todo.title = data['title'].strip()
 
-        # Update fields if provided
-        if 'title' in data and data['title']:
-            todo.title = data['title']
         if 'description' in data:
             todo.description = data['description']
-        if 'completed' in data:
-            if not isinstance(data['completed'], bool):
-                return jsonify({"error": "Completed status must be a boolean"}), 400
-            todo.completed = data['completed']
 
-        # Save to file
-        _save_todos(TODOS)
+        if 'complete' in data:
+            if not isinstance(data['complete'], bool):
+                return jsonify({
+                    'success': False,
+                    'error': '"complete" field must be a boolean value'
+                }), 400
+            todo.complete = data['complete']
 
-        logger.info(f"Successfully updated todo with ID: {todo_id}")
-        return jsonify({"todo": todo.to_dict()}), 200
+        # Save changes
+        db.session.commit()
 
-    except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
-        return jsonify({"error": str(e)}), 400
+        logger.info(f"Updated todo with ID: {todo.id}")
+
+        # Return the updated todo
+        return jsonify({
+            'success': True,
+            'todo': todo.to_dict(),
+            'message': 'Todo updated successfully'
+        })
+
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error updating todo {todo_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to update todo {todo_id}',
+            'details': str(e)
+        }), 500
     except Exception as e:
-        logger.error(f"Error updating todo {todo_id}: {str(e)}")
-        return jsonify({"error": f"Failed to update todo: {str(e)}"}), 500
+        db.session.rollback()
+        logger.error(f"Unexpected error updating todo {todo_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'An unexpected error occurred'
+        }), 500
 
-@todos_bp.route('/todos/<string:todo_id>', methods=['DELETE'])
-def delete_todo(todo_id: str) -> Union[Tuple[Dict[str, str], int], Tuple[Dict[str, str], int]]:
-    """
-    Delete a todo.
-
-    Args:
-        todo_id (str): ID of the todo to delete
-
-    Returns:
-        JSON response with success message or error message and HTTP status code
-    """
-    logger.info(f"Deleting todo with ID: {todo_id}")
+@todos_bp.route('/todos/<int:todo_id>', methods=['DELETE'])
+def delete_todo(todo_id):
+    """Delete a specific todo by ID"""
     try:
-        if todo_id not in TODOS:
-            logger.warning(f"Todo with ID {todo_id} not found")
-            return jsonify({"error": "Todo not found"}), 404
+        # Get the todo
+        todo = Todo.query.get(todo_id)
 
-        # Delete todo
-        del TODOS[todo_id]
+        if todo is None:
+            return jsonify({
+                'success': False,
+                'error': f'Todo with ID {todo_id} not found'
+            }), 404
 
-        # Save to file
-        _save_todos(TODOS)
+        # Delete the todo
+        db.session.delete(todo)
+        db.session.commit()
 
-        logger.info(f"Successfully deleted todo with ID: {todo_id}")
-        return jsonify({"message": "Todo deleted successfully"}), 200
+        logger.info(f"Deleted todo with ID: {todo_id}")
 
+        return jsonify({
+            'success': True,
+            'message': f'Todo with ID {todo_id} deleted successfully'
+        })
+
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error deleting todo {todo_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to delete todo {todo_id}',
+            'details': str(e)
+        }), 500
     except Exception as e:
-        logger.error(f"Error deleting todo {todo_id}: {str(e)}")
-        return jsonify({"error": f"Failed to delete todo: {str(e)}"}), 500
+        db.session.rollback()
+        logger.error(f"Unexpected error deleting todo {todo_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'An unexpected error occurred'
+        }), 500
+
+# Bulk operations for efficiency
+@todos_bp.route('/todos/bulk', methods=['PUT'])
+def bulk_update_todos():
+    """Update multiple todos at once"""
+    try:
+        data = request.get_json()
+
+        if not data or 'todos' not in data or not isinstance(data['todos'], list):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid request format. Expecting {"todos": [{"id": 1, "complete": true}, ...]}'
+            }), 400
+
+        updated_count = 0
+        not_found = []
+
+        for item in data['todos']:
+            if 'id' not in item:
+                continue
+
+            todo = Todo.query.get(item['id'])
+            if not todo:
+                not_found.append(item['id'])
+                continue
+
+            if 'complete' in item and isinstance(item['complete'], bool):
+                todo.complete = item['complete']
+                updated_count += 1
+
+        db.session.commit()
+
+        result = {
+            'success': True,
+            'updated': updated_count,
+            'message': f'Updated {updated_count} todos'
+        }
+
+        if not_found:
+            result['not_found'] = not_found
+
+        return jsonify(result)
+
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Database error in bulk update: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to update todos',
+            'details': str(e)
+        }), 500
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Unexpected error in bulk update: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'An unexpected error occurred'
+        }), 500
