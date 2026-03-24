@@ -1,0 +1,40 @@
+.fade-out {
+    transition: opacity 0.3s, height 0.3s 0.3s;
+    opacity: 0;
+    height: 0 !important;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    border: 0;
+    overflow: hidden;
+}
+
+.btn:disabled {
+    cursor: not-allowed;
+}
+
+/* Subtle hover effect for todo items */
+.list-group-item {
+    transition: background-color 0.2s ease;
+}
+
+.list-group-item:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+/* Animation for new todos */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.list-group-item:first-child {
+    animation: fadeIn 0.5s ease;
+}
