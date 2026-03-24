@@ -1,11 +1,11 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, render_template, abort
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 from typing import Dict, List, Union, Tuple, Any
 import json
 import os
 
-from models import db, Todo
+from models import db, Todo, ValidationError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +13,17 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint for todo routes
 todos_bp = Blueprint('todos', __name__, url_prefix='')
+
+@todos_bp.errorhandler(ValidationError)
+def handle_validation_error(e):
+    """Handle validation errors from models."""
+    return jsonify(error=str(e)), 400
+
+@todos_bp.errorhandler(SQLAlchemyError)
+def handle_database_error(e):
+    """Handle database errors."""
+    logger.error(f"Database error: {str(e)}")
+    return jsonify(error="Database operation failed. Please try again later."), 500
 
 @todos_bp.route('/todos', methods=['GET'])
 def get_todos():
@@ -46,6 +57,16 @@ def get_todos():
             'success': False,
             'error': 'An unexpected error occurred'
         }), 500
+
+@todos_bp.route('/api/todos', methods=['GET'])
+def api_get_todos():
+    """API endpoint to get all todos."""
+    try:
+        todos = Todo.query.order_by(Todo.created_at.desc()).all()
+        return jsonify([todo.to_dict() for todo in todos])
+    except SQLAlchemyError as e:
+        logger.error(f"Error retrieving todos: {str(e)}")
+        return jsonify(error="Database error"), 500
 
 @todos_bp.route('/todos/<int:todo_id>', methods=['GET'])
 def get_todo(todo_id):
@@ -138,6 +159,23 @@ def create_todo():
             'success': False,
             'error': 'An unexpected error occurred'
         }), 500
+
+@todos_bp.route('/api/todos', methods=['POST'])
+def api_create_todo():
+    """API endpoint to create a new todo item."""
+    data = request.get_json()
+
+    if not data or 'title' not in data:
+        return jsonify(error="Title is required"), 400
+
+    try:
+        todo = Todo.create(title=data['title'], complete=data.get('complete', False))
+        return jsonify(todo.to_dict()), 201
+    except ValidationError as e:
+        return jsonify(error=str(e)), 400
+    except SQLAlchemyError as e:
+        logger.error(f"Error creating todo: {str(e)}")
+        return jsonify(error="Database error"), 500
 
 @todos_bp.route('/todos/<int:todo_id>', methods=['PUT'])
 def update_todo(todo_id):

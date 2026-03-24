@@ -1,10 +1,32 @@
+"""
+Database models for the Todo application.
+
+This module defines the SQLAlchemy models used in the Todo application.
+Currently, it only contains the Todo model for managing todo items.
+"""
+
 from datetime import datetime
 from typing import Optional, Dict, Any
 import uuid
+import re
+import logging
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.hybrid import hybrid_property
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Initialize SQLAlchemy instance
 db = SQLAlchemy()
+
+class ValidationError(Exception):
+    """Custom exception for model validation errors."""
+    pass
 
 class Todo(db.Model):
     """
@@ -12,7 +34,7 @@ class Todo(db.Model):
 
     Attributes:
         id (int): Unique identifier for the todo item
-        title (str): Title of the todo item
+        title (str): Title of the todo item (max 200 characters)
         description (str): Detailed description of the todo item
         complete (bool): Whether the todo item is completed
         created_at (datetime): Timestamp when the todo item was created
@@ -22,11 +44,38 @@ class Todo(db.Model):
     __tablename__ = 'todos'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    title = db.Column(db.String(200), nullable=False)
+    _title = db.Column('title', db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
     complete = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @hybrid_property
+    def title(self):
+        """Getter for title property."""
+        return self._title
+
+    @title.setter
+    def title(self, value):
+        """
+        Setter for title property with validation.
+
+        Args:
+            value (str): The title value to set
+
+        Raises:
+            ValidationError: If the title is invalid
+        """
+        if not value or not value.strip():
+            raise ValidationError("Todo title cannot be empty")
+
+        # Sanitize input - remove any potentially harmful HTML
+        value = re.sub(r'<[^>]*>', '', value)
+
+        if len(value) > 200:
+            raise ValidationError("Todo title cannot exceed 200 characters")
+
+        self._title = value.strip()
 
     def __init__(self, title, description=None, complete=False):
         """
@@ -40,15 +89,6 @@ class Todo(db.Model):
         self.title = title
         self.description = description
         self.complete = complete
-        self._validate()
-
-    def _validate(self) -> None:
-        """Validate the todo item's attributes."""
-        if not self.title:
-            raise ValueError("Todo title cannot be empty")
-
-        if not isinstance(self.complete, bool):
-            raise TypeError("Complete status must be a boolean")
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -83,10 +123,42 @@ class Todo(db.Model):
             complete=data.get('complete', False)
         )
 
+    @classmethod
+    def create(cls, title, description=None, complete=False):
+        """
+        Create a new Todo item with error handling.
+
+        Args:
+            title (str): The title of the todo item
+            description (str, optional): Description of the todo item
+            complete (bool): Whether the todo is complete
+
+        Returns:
+            Todo: The created todo object
+
+        Raises:
+            ValidationError: If validation fails
+            SQLAlchemyError: If database operations fail
+        """
+        try:
+            todo = cls(title=title, description=description, complete=complete)
+            db.session.add(todo)
+            db.session.commit()
+            return todo
+        except ValidationError as e:
+            db.session.rollback()
+            logger.error(f"Validation error: {str(e)}")
+            raise
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"Database error creating todo: {str(e)}")
+            raise
+
     def __str__(self) -> str:
         """String representation of the Todo item."""
         status = "Completed" if self.complete else "Not Completed"
         return f"Todo(id={self.id}, title={self.title}, {status})"
 
     def __repr__(self) -> str:
+        """Return a string representation of the Todo object."""
         return f"<Todo {self.id}: {self.title}>"

@@ -370,13 +370,13 @@ async function deleteTodo(todoId) {
                     todoList.innerHTML = '<li class="no-todos">No todos yet. Create one!</li>';
                 }
             }
+            
+            showSuccessMessage('Todo deleted successfully!');
         }, 300);
-
-        showSuccessMessage('Todo deleted successfully!');
     } catch (error) {
         console.error('Error deleting todo:', error);
         showErrorMessage(error.message || 'Failed to delete todo. Please try again.');
-
+        
         // Remove the deleting class if there was an error
         const todoElement = document.querySelector(`.todo-item[data-id="${todoId}"]`);
         if (todoElement) {
@@ -386,93 +386,88 @@ async function deleteTodo(todoId) {
 }
 
 /**
- * Show loader while operations are in progress
+ * Escape HTML special characters to prevent XSS
+ * @param {string} unsafe - String that might contain HTML
+ * @return {string} - Escaped safe string
+ */
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+/**
+ * Show a success message to the user
+ * @param {string} message - The message to display
+ */
+function showSuccessMessage(message) {
+    // Implementation depends on how you want to show messages
+    // Could use a toast notification, alert box, or dedicated message area
+    const messageArea = document.getElementById('message-area');
+    
+    if (messageArea) {
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message success';
+        messageElement.textContent = message;
+        
+        messageArea.appendChild(messageElement);
+        
+        // Remove after a few seconds
+        setTimeout(() => {
+            messageElement.classList.add('hiding');
+            setTimeout(() => messageElement.remove(), 300);
+        }, 3000);
+    } else {
+        console.log('Success:', message);
+    }
+}
+
+/**
+ * Show an error message to the user
+ * @param {string} message - The error message to display
+ */
+function showErrorMessage(message) {
+    // Implementation depends on how you want to show errors
+    const messageArea = document.getElementById('message-area');
+    
+    if (messageArea) {
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message error';
+        messageElement.textContent = message;
+        
+        messageArea.appendChild(messageElement);
+        
+        // Remove after a few seconds
+        setTimeout(() => {
+            messageElement.classList.add('hiding');
+            setTimeout(() => messageElement.remove(), 300);
+        }, 5000);
+    } else {
+        console.error('Error:', message);
+    }
+}
+
+/**
+ * Show loading indicator
  */
 function showLoader() {
     const loader = document.getElementById('loader');
     if (loader) {
-        loader.classList.add('active');
-    } else {
-        // Create loader if it doesn't exist
-        const newLoader = document.createElement('div');
-        newLoader.id = 'loader';
-        newLoader.className = 'loader active';
-        newLoader.innerHTML = '<div class="spinner"></div>';
-        document.body.appendChild(newLoader);
+        loader.style.display = 'block';
     }
 }
 
 /**
- * Hide loader after operations complete
+ * Hide loading indicator
  */
 function hideLoader() {
     const loader = document.getElementById('loader');
     if (loader) {
-        loader.classList.remove('active');
+        loader.style.display = 'none';
     }
-}
-
-/**
- * Show error message to the user
- * @param {string} message - The error message to display
- */
-function showErrorMessage(message) {
-    const errorMessage = document.getElementById('error-message');
-    if (errorMessage) {
-        errorMessage.textContent = message;
-        errorMessage.style.display = 'block';
-    } else {
-        showNotification(message, 'error');
-    }
-}
-
-/**
- * Show success message to the user
- * @param {string} message - The success message to display
- */
-function showSuccessMessage(message) {
-    showNotification(message, 'success');
-}
-
-/**
- * Show a notification message
- * @param {string} message - The message to display
- * @param {string} type - The type of notification ('error' or 'success')
- */
-function showNotification(message, type = 'info') {
-    const notifications = document.getElementById('notifications');
-
-    if (!notifications) {
-        // Create notifications container if it doesn't exist
-        const notificationsContainer = document.createElement('div');
-        notificationsContainer.id = 'notifications';
-        document.body.appendChild(notificationsContainer);
-    }
-
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.innerText = message;
-
-    document.getElementById('notifications').appendChild(notification);
-
-    // Auto-remove after a delay
-    setTimeout(() => {
-        notification.classList.add('hide');
-        setTimeout(() => {
-            notification.remove();
-        }, 300);
-    }, 3000);
-}
-
-/**
- * Escape HTML to prevent XSS attacks
- * @param {string} text - The text to escape
- * @returns {string} - Escaped text
- */
-function escapeHtml(text) {
-    if (!text) return '';
-
-    const div = document.createElement('div');
-    div.innerText = text;
-    return div.innerHTML;
 }

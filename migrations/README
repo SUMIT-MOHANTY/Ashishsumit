@@ -1,0 +1,8 @@
+# Database Migrations
+
+This directory contains database migration scripts for the Todo application.
+Migrations are managed using Flask-Migrate (Alembic).
+
+## How to use migrations:
+
+1. Initialize migrations (first time only):

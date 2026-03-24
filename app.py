@@ -3,11 +3,13 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_migrate import Migrate
 import os
 import logging
 from datetime import datetime
 from routes import todos_bp
 from models import db
+from config import config
 
 # Configure logging
 logging.basicConfig(
@@ -16,15 +18,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def create_app(test_config=None) -> Flask:
-    """Create and configure the Flask application.
+def create_app(config_name=None) -> Flask:
+    """
+    Create and configure the Flask application.
+
+    Args:
+        config_name (str): The configuration to use (development, testing, production)
+                           If None, will use environment variable or default
 
     Returns:
         Flask: The configured Flask application
     """
     app = Flask(__name__)
     
-    # Configuration
+    # Determine configuration to use
+    if config_name is None:
+        config_name = os.environ.get('FLASK_CONFIG', 'default')
+
+    # Apply configuration
+    app.config.from_object(config[config_name])
+    
+    # Legacy configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_testing')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///database.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -40,6 +54,18 @@ def create_app(test_config=None) -> Flask:
     
     # Initialize database
     db.init_app(app)
+    
+    # Setup database migrations
+    migrate = Migrate(app, db)
+    
+    # Create database tables if they don't exist (in development only)
+    if app.config.get('DEBUG', False):
+        with app.app_context():
+            try:
+                db.create_all()
+                print("Database tables created successfully")
+            except Exception as e:
+                print(f"Error creating database tables: {e}")
     
     # Initialize login manager
     login_manager = LoginManager()
@@ -337,40 +363,18 @@ def create_app(test_config=None) -> Flask:
 
             todo = Task(
                 title=title.strip(),
-                user_id=current_user.id if current_user.is_authenticated else 1
             )
             db.session.add(todo)
             db.session.commit()
-
-            # Check if request is AJAX
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'success': True, 'todo': {
-                    'id': todo.id,
-                    'title': todo.title,
-                    'completed': todo.completed
-                }})
-
-            flash('Todo added successfully!', 'success')
-            return redirect(url_for('index'))
+            return jsonify({'success': True})
         except Exception as e:
             db.session.rollback()
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'success': False, 'error': str(e)}), 500
-            flash(f'Error adding todo: {str(e)}', 'danger')
-            return redirect(url_for('index'))
-        
-    # Create database tables
-    with app.app_context():
-        db.create_all()
-            
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
     return app
 
+# Create the Flask application instance
+app = create_app()
+
 if __name__ == '__main__':
-    app = create_app()
-    
-    # Get port from environment or use default
-    port = int(os.environ.get('PORT', 5000))
-    
-    # Run the app
-    logger.info(f"Starting server on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(debug=app.config.get('DEBUG', False))
