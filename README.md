@@ -12,6 +12,13 @@ The project is built with:
 - **Database**: SQLite (development), PostgreSQL (production)
 - **Authentication**: JWT-based authentication system
 
+### Key Benefits
+
+- **Simple and Intuitive**: Easy-to-use interface for managing tasks
+- **Persistent Storage**: Tasks are saved in a database and preserved between sessions
+- **Responsive Design**: Works seamlessly on desktop and mobile devices
+- **Real-time Updates**: Changes to tasks appear instantly without page reloads
+
 ## Features
 
 - **User Authentication**: Secure login and registration system
